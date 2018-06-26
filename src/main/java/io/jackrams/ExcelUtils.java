@@ -100,7 +100,7 @@ public class ExcelUtils {
       Field field = domain.getField();
       int index = domain.getIndex();
       Cell cell = row.getCell(index);
-      System.out.println(field.getName()+"::::"+type);
+   //   System.out.println(field.getName()+"::::"+type);
       field.set(t,getValue(type,getCellValue(cell)));
     }
     return t;
@@ -156,6 +156,9 @@ public class ExcelUtils {
         value=Boolean.valueOf(strVal);
         break;
       case Integer:
+        if(strVal.contains(".")) {
+          strVal = strVal.split("\\.")[0];
+        }
         value=Integer.valueOf(strVal);
         break;
       case Character:

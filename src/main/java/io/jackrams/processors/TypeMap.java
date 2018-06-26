@@ -34,7 +34,7 @@ public class TypeMap {
   }
   public static TypeEnum getFieldType(Field field){
     TypeEnum typeEnum = classTypeEnumMap.get(field.getType());
-    System.out.println("F:"+field.getName()+"\t"+typeEnum);
+//    System.out.println("F:"+field.getName()+"\t"+typeEnum);
     if(!(null== typeEnum)) return typeEnum;
     return TypeEnum.String;
   }
