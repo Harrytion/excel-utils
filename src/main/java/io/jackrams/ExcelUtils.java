@@ -100,7 +100,6 @@ public class ExcelUtils {
       Field field = domain.getField();
       int index = domain.getIndex();
       Cell cell = row.getCell(index);
-   //   System.out.println(field.getName()+"::::"+type);
       field.set(t,getValue(type,getCellValue(cell)));
     }
     return t;
