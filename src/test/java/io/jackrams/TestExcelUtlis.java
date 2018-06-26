@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-public class TestExcelUtls {
+public class TestExcelUtlis {
   @Test
   public void testExport() throws Exception{
     List<TestBean> testBeans = new ArrayList<>();
