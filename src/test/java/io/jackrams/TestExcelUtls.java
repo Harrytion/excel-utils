@@ -1,6 +1,6 @@
-package io.jackrams.beans;
+package io.jackrams;
 
-import io.jackrams.ExcelUtils;
+import io.jackrams.beans.TestBean;
 import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.junit.Test;
 
