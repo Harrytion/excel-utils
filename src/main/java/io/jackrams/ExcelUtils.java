@@ -1,6 +1,5 @@
 package io.jackrams;
 
-import io.jackrams.annotations.ImportField;
 import io.jackrams.annotations.TypeEnum;
 import io.jackrams.annotations.ViewType;
 import io.jackrams.domain.ExportFieldDomain;
@@ -50,14 +49,16 @@ public class ExcelUtils {
   //
   public static<T> List<T> importExcel(Class<T> tClass,InputStream inputStream,boolean xls) throws Exception{
     if(null==tClass) throw new RuntimeException("Class  is Null");
-    List<T> dataList = new ArrayList<>();
+    List<T> dataList = new LinkedList<>();
     Workbook workbook = null;
     List<ImportFieldDomain> domains = new ArrayList<>();
     new ImportFieldProcessor().doFieldAnnotation(tClass,domains);
     if(xls){
       workbook =new HSSFWorkbook(inputStream);
     }else {
-      workbook =new XSSFWorkbook(inputStream);
+      workbook =new XSSFWorkbook(inputStream){
+
+      };
     }
     int index=0;
 
@@ -72,19 +73,22 @@ public class ExcelUtils {
       dataList.addAll(dataListFromSheet);
     }while (null!=sheet);
 
+    workbook.close();
+    inputStream.close();
 
     return dataList;
   }
 
   private static<T> List<T> getDataListFromSheet(Class<T> tClass,Sheet sheet,List<ImportFieldDomain> domainList){
 
-    List<T> dataList = new ArrayList<>();
+    List<T> dataList = new LinkedList<>();
     try {
       int lastRowNum = sheet.getLastRowNum();
       if(lastRowNum<0) return new ArrayList<>();
       int startIndex=indexMap(sheet,domainList);
       for(int index=startIndex+1;index<=lastRowNum;index++){
         Row row = sheet.getRow(index);
+        if(skipNullRow(row,index)!=index) continue;
         dataList.add(getDataFromRow(tClass,row,domainList));
       }
     }catch (Exception e){
@@ -112,6 +116,7 @@ public class ExcelUtils {
     for (int rowIndex=0;rowIndex<lastRowNum;rowIndex++){
         for (ImportFieldDomain domain : domainList){
           Row row =sheet.getRow(rowIndex);
+          if(skipNullRow(row,rowIndex)!=rowIndex) continue;
           if(null==row) continue;
           short lastCellNum = row.getLastCellNum();
           for(short cellIndex=1;cellIndex<=lastCellNum;cellIndex++){
@@ -129,6 +134,18 @@ public class ExcelUtils {
 
   }
 
+  private static int skipNullRow(Row row,int rowIndex){
+    if(row==null) return rowIndex+1;
+    short lastCellNum = row.getLastCellNum();
+    for (int cellIndex=1;cellIndex<=lastCellNum;cellIndex++){
+      Cell cell = row.getCell(cellIndex);
+      String cellValue = getCellValue(cell);
+      if(!cellValue.equalsIgnoreCase("")){
+        return rowIndex;
+      }
+    }
+    return rowIndex+1;
+  }
 
   public static Object getValue(TypeEnum type,String strVal){
     Object value=null;
