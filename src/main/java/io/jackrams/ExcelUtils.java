@@ -6,18 +6,63 @@ import io.jackrams.domain.ExportFieldDomain;
 import io.jackrams.domain.ImportFieldDomain;
 import io.jackrams.processors.ExportFieldProcessor;
 import io.jackrams.processors.ImportFieldProcessor;
+import io.jackrams.row.CellDataType;
+import io.jackrams.row.ExcelRowReader;
+import io.jackrams.xlsx.XlsxReader;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.internal.ZipHelper;
-import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.usermodel.BuiltinFormats;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.util.CellReference;
-import org.apache.poi.xssf.usermodel.*;
+import org.apache.poi.xssf.eventusermodel.XSSFReader;
+import org.apache.poi.xssf.model.SharedStringsTable;
+import org.apache.poi.xssf.model.StylesTable;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFDataFormat;
+import org.apache.poi.xssf.usermodel.XSSFFont;
+import org.apache.poi.xssf.usermodel.XSSFRichTextString;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.xml.sax.Attributes;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
+import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.helpers.XMLReaderFactory;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.lang.reflect.Field;
-import java.util.*;
-import java.util.concurrent.locks.ReentrantLock;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -28,54 +73,56 @@ public class ExcelUtils {
 
   private static transient Log log = LogFactory.getLog(ExcelUtils.class);
 
-  private static ReentrantLock exportLock = new ReentrantLock();
+ // private static ReentrantLock exportLock = new ReentrantLock();
 
-  private static ReentrantLock importLock = new ReentrantLock();
+ // private static ReentrantLock importLock = new ReentrantLock();
 
 
   public static<T> List<T> importExcel(Class<T> tClass,File file) throws Exception{
     List<T> dataList= null;
-    importLock.lock();
-    try {
-      String name = file.getName();
-      dataList = importExcel(tClass,new FileInputStream(file),name.endsWith(".xls"));
-    }catch (Exception e){
-      e.printStackTrace();
-    }finally {
-      importLock.unlock();
+  //  importLock.lock();
+    String fileName = file.getName();
+    synchronized (fileName.intern()) {
+      try {
+        // String name = file.getName();
+        dataList = importExcel(tClass, file, fileName.endsWith(".xls"));
+      } catch (Exception e) {
+        e.printStackTrace();
+      } finally {
+        //  importLock.unlock();
+      }
     }
     return dataList;
   }
   //
-  public static<T> List<T> importExcel(Class<T> tClass,InputStream inputStream,boolean xls) throws Exception{
+  public static<T> List<T> importExcel(Class<T> tClass,File file,boolean xls) throws Exception{
     if(null==tClass) throw new RuntimeException("Class  is Null");
     List<T> dataList = new LinkedList<>();
     Workbook workbook = null;
     List<ImportFieldDomain> domains = new ArrayList<>();
-    new ImportFieldProcessor().doFieldAnnotation(tClass,domains);
-    if(xls){
-      workbook =new HSSFWorkbook(inputStream);
-    }else {
-      workbook =new XSSFWorkbook(inputStream){
+    if(xls) {
+      new ImportFieldProcessor().doFieldAnnotation(tClass,domains);
+      FileInputStream inputStream = new FileInputStream(file);;
+      workbook = new HSSFWorkbook(inputStream);
 
-      };
-    }
-    int index=0;
+      int index = 0;
 
-    Sheet sheet = null;
-    do {
-      try {
-        sheet=workbook.getSheetAt(index++);
-      }catch (Exception e){
+      Sheet sheet = null;
+      do {
+        try {
+          sheet = workbook.getSheetAt(index++);
+        } catch (Exception e) {
           break;
-      }
-      List<T> dataListFromSheet = getDataListFromSheet(tClass, sheet, domains);
-      dataList.addAll(dataListFromSheet);
-    }while (null!=sheet);
+        }
+        List<T> dataListFromSheet = getDataListFromSheet(tClass, sheet, domains);
+        dataList.addAll(dataListFromSheet);
+      } while (null != sheet);
 
-    workbook.close();
-    inputStream.close();
-
+      workbook.close();
+      inputStream.close();
+    }else {
+      dataList = new XlsxReader<T>(tClass).processAllSheets(file);
+    }
     return dataList;
   }
 
@@ -98,9 +145,12 @@ public class ExcelUtils {
   }
 
   private static <T> T getDataFromRow(Class<T> tClass,Row row,List<ImportFieldDomain> domainList) throws Exception{
+
+
     T t =tClass.newInstance();
     for(ImportFieldDomain domain : domainList){
-      TypeEnum type = domain.getType();
+      if(null==domain.getIndex()) continue;
+       TypeEnum type = domain.getType();
       Field field = domain.getField();
       int index = domain.getIndex();
       Cell cell = row.getCell(index);
@@ -113,25 +163,42 @@ public class ExcelUtils {
     int lastRowNum = sheet.getLastRowNum();
     if(lastRowNum<0) throw new RuntimeException("size=0");
     int startIndex=0;
+    Set<Integer> indexSet = new HashSet<>();
+    Set<String>  titleSet = new HashSet<>();
+  //  boolean flag=false;
     for (int rowIndex=0;rowIndex<lastRowNum;rowIndex++){
         for (ImportFieldDomain domain : domainList){
           Row row =sheet.getRow(rowIndex);
           if(skipNullRow(row,rowIndex)!=rowIndex) continue;
           if(null==row) continue;
           short lastCellNum = row.getLastCellNum();
-          for(short cellIndex=1;cellIndex<=lastCellNum;cellIndex++){
+       //   boolean[] flags= new boolean[lastCellNum-1];
+          for(short cellIndex=0;cellIndex<=lastCellNum;cellIndex++){
             Cell cell = row.getCell(cellIndex);
             Set<String> titles = domain.getTitles();
-            if(titles.contains(getCellValue(cell))) {
-              domain.setIndex(cellIndex);
-              startIndex=rowIndex;
+            String cellValue = getCellValue(cell);
+            if(titles.contains(cellValue)) {
+              if(titleSet.addAll(titles)) {
+                if (indexSet.add((int) cellIndex)){
+                  domain.setIndex((int) cellIndex);
+                }else{
+                  domain.setIndex(null);
+                }
+                //      flags[cellIndex-1]=true;
+                startIndex = rowIndex;
+              }
             }
+           // if (checkFlags(flags)) break;
           }
         }
     }
     return startIndex;
+  }
 
-
+  private static boolean checkFlags(boolean[] flags){
+    for (boolean flag : flags)
+      if(!flag) return false;
+    return true;
   }
 
   private static int skipNullRow(Row row,int rowIndex){
@@ -148,83 +215,116 @@ public class ExcelUtils {
   }
 
   public static Object getValue(TypeEnum type,String strVal){
-    Object value=null;
     switch (type){
       case String:
-        value =strVal;
-        break;
+        return strVal;
       case Byte:
-        value=Byte.valueOf(strVal);
-        break;
-      case Long:
-        value=Long.valueOf(strVal);
-        break;
-      case Float:
-        value=Float.valueOf(strVal);
-        break;
-      case Short:
-        value=Short.valueOf(strVal);
-        break;
-      case Double:
-        value=Double.valueOf(strVal);
-        break;
-      case Boolean:
-        value=Boolean.valueOf(strVal);
-        break;
-      case Integer:
-        if(strVal.contains(".")) {
-          strVal = strVal.split("\\.")[0];
+        try {
+          return Byte.valueOf(strVal);
+
+        }catch (Exception e){
+          return 0;
         }
-        value=Integer.valueOf(strVal);
-        break;
+        //break;
+      case Long:
+        try {
+          return Long.valueOf(strVal);
+        }catch (Exception e){
+          return 0;
+        }
+
+      case Float:
+        try {
+          return Float.valueOf(strVal);
+
+        }catch (Exception e){
+          return 0;
+        }
+
+      case Short:
+        try {
+          return Short.valueOf(strVal);
+
+        }catch (Exception e){
+          return 0;
+        }
+
+      case Double:
+        try {
+          return Double.valueOf(strVal);
+        }catch (Exception e){
+          return 0;
+        }
+
+      case Boolean:
+        try {
+          return Boolean.valueOf(strVal);
+
+        }catch (Exception e){
+          return null;
+        }
+
+      case Integer:
+        try {
+          if(strVal.contains(".")) {
+            strVal = strVal.split("\\.")[0];
+          }
+          return Integer.valueOf(strVal);
+        }catch (Exception e){
+          return 0;
+        }
+
       case Character:
-        value=strVal.charAt(0);
-        break;
+        return strVal.charAt(0);
+
       case ByteArray:
-        value=new byte[10];
-        break;
+        return new byte[10];
+
       default:
-          value=null;
-          break;
+          return null;
     }
-    return value;
   }
 
-  public static String getCellValue(Cell cell){
-    String cellValue = "";
+  private static String getCellValue(Cell cell){
     if(cell == null){
-      return cellValue;
+      return "";
     }
     //把数字当成String来读，避免出现1读成1.0的情况
-    if(cell.getCellTypeEnum() == CellType.NUMERIC){
+    if(cell.getCellTypeEnum() == CellType.NUMERIC && !isDate(cell)){
       cell.setCellType(CellType.STRING);
     }
     //判断数据的类型
     switch (cell.getCellTypeEnum()){
       case NUMERIC: //数字
-        cellValue = String.valueOf(cell.getNumericCellValue());
-        break;
+        if(isDate(cell)){
+          SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+          return sdf.format(DateUtil.getJavaDate(cell.getNumericCellValue()));
+        }
+
+        return String.valueOf(cell.getNumericCellValue());
       case STRING: //字符串
-        cellValue = String.valueOf(cell.getStringCellValue());
-        break;
+        return String.valueOf(cell.getStringCellValue());
       case BOOLEAN: //Boolean
-        cellValue = String.valueOf(cell.getBooleanCellValue());
-        break;
+        return String.valueOf(cell.getBooleanCellValue());
       case FORMULA: //公式
-        cellValue = String.valueOf(cell.getCellFormula());
-        break;
+        return String.valueOf(cell.getCellFormula());
       case BLANK: //空值
-        cellValue = "";
-        break;
+        return "";
       case ERROR: //故障
-        cellValue = "非法字符";
-        break;
+        return  "非法字符";
       default:
-        cellValue = "未知类型";
-        break;
+        return  "未知类型";
     }
-    return cellValue;
   }
+
+
+
+
+  private static boolean isDate(Cell cell){
+    return  DateUtil.isCellDateFormatted(cell);
+   // return false;
+  }
+
 
 
   //导出数据
@@ -232,51 +332,53 @@ public class ExcelUtils {
   public  static<T> void  exportExcel(Class<T> tClass,Collection<T> data,OutputStream stream,
                     File templateFile,Map<String, XSSFCellStyle> cellStyles,String sheetName){
     if(null==tClass) return;
-    exportLock.lock();
-    if(log.isInfoEnabled()){
-      log.info("Start Excel Export");
-    }
+   // exportLock.lock();
+    synchronized (templateFile.getName().intern()) {
+      if (log.isInfoEnabled()) {
+        log.info("Start Excel Export");
+      }
       List<ExportFieldDomain> exportFieldDomains = new ArrayList<>();
       try {
-        new ExportFieldProcessor().doFieldAnnotation(tClass,exportFieldDomains);
+        new ExportFieldProcessor().doFieldAnnotation(tClass, exportFieldDomains);
       } catch (Exception e) {
         // TODO Auto-generated catch block
         e.printStackTrace();
-      }finally{
+      } finally {
 
       }
 
-    XSSFWorkbook wb = new XSSFWorkbook();
-    if(cellStyles==null || cellStyles.isEmpty()){
-      cellStyles=createStyles(wb);
-    }
-    try{
-      XSSFSheet sheet = wb.createSheet(sheetName);
+      XSSFWorkbook wb = new XSSFWorkbook();
+      if (cellStyles == null || cellStyles.isEmpty()) {
+        cellStyles = createStyles(wb);
+      }
+      try {
+        XSSFSheet sheet = wb.createSheet(sheetName);
 
 
-      //name of the zip entry holding sheet data, e.g. /xl/worksheets/sheet1.xml
-      String sheetRef = sheet.getPackagePart().getPartName().getName();
+        //name of the zip entry holding sheet data, e.g. /xl/worksheets/sheet1.xml
+        String sheetRef = sheet.getPackagePart().getPartName().getName();
 
-      //save the template
-      FileOutputStream os = new FileOutputStream(templateFile);
-      wb.write(os);
-      os.close();
+        //save the template
+        FileOutputStream os = new FileOutputStream(templateFile);
+        wb.write(os);
+        os.close();
 
-      //Step 2. Generate XML file.
-      File tmp = File.createTempFile("sheet", ".xml");
-      Writer fw = new OutputStreamWriter(new FileOutputStream(tmp), XML_ENCODING);
-      generateData(fw, cellStyles,data,exportFieldDomains);
-      fw.close();
+        //Step 2. Generate XML file.
+        File tmp = File.createTempFile("sheet", ".xml");
+        Writer fw = new OutputStreamWriter(new FileOutputStream(tmp), XML_ENCODING);
+        generateData(fw, cellStyles, data, exportFieldDomains);
 
-      //Step 3. Substitute the template entry with the generated data
-      //  FileOutputStream out = new FileOutputStream("big-grid.xlsx");
-      substitute(templateFile, tmp, sheetRef.substring(1), stream);
-      stream.close();
-    } catch(Exception e){
-      log.error("Stop Excel Export，Something Error",e);
+        //Step 3. Substitute the template entry with the generated data
+        //  FileOutputStream out = new FileOutputStream("big-grid.xlsx");
+        fw.close();
+        substitute(templateFile, tmp, sheetRef.substring(1), stream);
+        stream.close();
+      } catch (Exception e) {
+        log.error("Stop Excel Export，Something Error", e);
 
-    }finally {
-      exportLock.unlock();
+      } finally {
+        // exportLock.unlock();
+      }
     }
       log.info("export excel success ");
   }
@@ -523,5 +625,8 @@ public class ExcelUtils {
   private ExcelUtils(){
     throw new RuntimeException("不好意思，不允许实例化我");
   }
+
+
+
 
 }

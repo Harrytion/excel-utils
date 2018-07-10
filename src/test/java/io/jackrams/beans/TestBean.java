@@ -19,6 +19,9 @@ public class TestBean {
   @ExportField(title = "薪水")
   @ImportField(titles = "工资,薪水")
   private Double sarly;
+  @ImportField(title = "日期")
+  @ExportField(title = "日期")
+  private String date;
 
   public String getPeopleId() {
     return peopleId;
@@ -60,5 +63,11 @@ public class TestBean {
     this.sarly = sarly;
   }
 
-  
+  public String getDate() {
+    return date;
+  }
+
+  public void setDate(String date) {
+    this.date = date;
+  }
 }
